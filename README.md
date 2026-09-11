@@ -1,2 +1,38 @@
-# Energy-Hackathon
-A smart fuel system using Carbon Nanotube resistive sensing to read tank levels in real time, paired with 9-Zone Selective Heating Logic that activates only the zone nearest demand, cascading further only when needed—cutting energy use by ~78% vs full activation. Code on GitHub; prototype: https://vermillion-pegasus-e6b547.netlify.app
+# Smart CNT Fuel Sensor & 9-Zone Selective Heating — Proof of Concept
+
+محاكاة برمجية (Python) تثبت "منطق العمل" (Business Logic) للمشروع، مرفوعة كإثبات فني
+مرافق لملف التقديم. البروتوتايب التفاعلي: https://vermillion-pegasus-e6b547.netlify.app
+
+## محتوى المستودع
+
+| الملف | الوصف |
+|---|---|
+| `resistance_to_fuel.py` | يحاكي قراءة مقاومة حساس الكربون النانوي (CNT) ويحوّلها بدقة إلى نسبة وقود متبقية (مثال: 74%)، مع فلترة تشويش القراءة (moving average) لثبات القيمة المعروضة. |
+| `zone_heating.py` | يحاكي خوارزمية الإدارة الذكية للمناطق (9-Zone Logic): تفعيل Zone 1 فقط عند الطلب الأولي لتوفير الطاقة، ونقل الإشارة تلقائياً إلى Zone 2 وما بعدها فقط عند زيادة الحاجة الفعلية، مع إطفاء تدريجي عند انتهاء الطلب. |
+| `main_demo.py` | يجمع الملفين السابقين في سيناريو واحد متكامل: من قراءة الحساس إلى قرار تفعيل المناطق. |
+
+## طريقة التشغيل
+
+```bash
+python3 main_demo.py
+```
+
+لا توجد اعتماديات خارجية (Standard Library فقط)، يعمل مباشرة بأي بيئة Python 3.
+
+## الفكرة الفنية باختصار
+
+1. **الحساس (Sensor Layer):** شريط الكربون النانوي مغمور جزئياً في الوقود؛ نسبة الغمر
+   تتغير مع مستوى الوقود فتتغير المقاومة الكهربائية للشريط تبعاً لذلك. النظام يقرأ هذه
+   المقاومة، يفلترها من التشويش، ويحوّلها لنسبة وقود دقيقة عبر معايرة بنقطتين
+   (خزان فاضي / خزان معبّى).
+
+2. **التحكم (Control Layer):** بدل تسخين/تشغيل كل الخزان (9 مناطق) دفعة واحدة عند أي
+   طلب، يبدأ النظام بمنطقة واحدة (Zone 1) الأقرب لنقطة الطلب. فقط إذا استمر الطلب أو
+   زاد فوق قدرة Zone 1، تُفعَّل Zone 2 فالتي بعدها بالتتابع — بما يوفر الطاقة بشكل مباشر
+   وقابل للقياس (يُظهره الكود عبر مقارنة الاستهلاك الفعلي بالاستهلاك لو شُغّلت كل
+   المناطق التسعة معاً).
+
+## ملاحظة
+
+هذا كود محاكاة منطقي (Simulation) لإثبات صحة الفكرة الخوارزمية أمام لجنة التحكيم،
+وليس كوداً متصلاً بحساس فعلي أو دائرة حقيقية.
