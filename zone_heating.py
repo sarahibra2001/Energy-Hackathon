@@ -1,138 +1,190 @@
 """
-zone_heating.py
------------------
-محاكاة خوارزمية "الإدارة الذكية للمناطق" (9-Zone Selective Heating Logic).
+9-Zone Selective Heating Controller
 
-الفكرة:
-- الخزان/السطح مقسّم إلى 9 مناطق (Zone 1 -> Zone 9).
-- Zone 1 هي الأقرب لمنطقة الطلب (مثلاً نقطة السحب/المضخة)، ولهذا هي أول من
-  تُفعَّل عند وجود طلب، لتوفير الطاقة (لا حاجة لتسخين كل الخزان لأجل كمية صغيرة).
-- إذا استمر الطلب (أو زادت الحاجة) ولم تكفِ Zone 1 لتلبيته خلال فترة زمنية
-  محددة، يتم "تمرير" الإشارة تلقائياً إلى Zone 2 المجاورة لتنضم للتسخين،
-  وهكذا بالتتابع حتى Zone 9 عند الحاجة القصوى فقط.
-- بهذا الشكل نستهلك أقل طاقة ممكنة مقارنة بتشغيل كل المناطق التسعة دفعة واحدة.
+The system contains 9 heating zones.
+
+Main rule:
+Only ONE zone can be actively heated at any time.
+
+Example:
+Zone 1 ON
+then when demand moves:
+Zone 1 OFF -> Zone 2 ON
+
+This demonstrates selective localized heating
+instead of heating the entire storage system.
 """
-
-from dataclasses import dataclass, field
-from typing import List
-
-
-@dataclass
-class Zone:
-    id: int
-    is_active: bool = False
-    temperature: float = 20.0  # درجة حرارة افتراضية عند البداية (°C)
-    target_temperature: float = 60.0
-    heating_rate: float = 4.0  # درجة/ثانية عند التفعيل
-    cooling_rate: float = 0.5  # درجة/ثانية عند الإطفاء (تبريد طبيعي)
-
-    def step(self):
-        if self.is_active and self.temperature < self.target_temperature:
-            self.temperature = min(self.target_temperature,
-                                    self.temperature + self.heating_rate)
-        elif not self.is_active and self.temperature > 20.0:
-            self.temperature = max(20.0, self.temperature - self.cooling_rate)
 
 
 class NineZoneController:
-    """
-    المتحكم الذكي: يدير تفعيل/تعطيل 9 مناطق تسخين بمنطق تصاعدي (Cascade Logic)
-    بدل تشغيل كل المناطق دفعة واحدة، لتحقيق أقصى توفير في الطاقة.
-    """
 
-    def __init__(self, num_zones: int = 9, demand_wait_ticks: int = 3):
-        self.zones: List[Zone] = [Zone(id=i + 1) for i in range(num_zones)]
-        self.demand_wait_ticks = demand_wait_ticks  # مدة الانتظار قبل تصعيد الطلب لمنطقة جديدة
-        self._ticks_since_last_escalation = 0
-        self.power_per_zone_watt = 150.0  # استهلاك كل منطقة عند التفعيل (تقديري)
-        self.log: List[str] = []
+    def __init__(self, heater_power_per_zone_kw=1.0):
 
-    # ---------- المنطق الأساسي ----------
-    def request_fuel(self, required_flow_units: float):
+        self.total_zones = 9
+
+        self.heater_power_per_zone_kw = heater_power_per_zone_kw
+
+        self.zones = {
+            zone: "OFF"
+            for zone in range(1, self.total_zones + 1)
+        }
+
+        self.active_zone = None
+
+
+    def request_zone(self, zone_number):
         """
-        يستقبل طلب سحب وقود بوحدات تدفق (flow units)، ويقرر أي مناطق تُفعَّل.
-        منطق مبسّط: كل منطقة نشطة وبدرجة حرارة كافية تعطي 1 وحدة تدفق تقريباً.
+        Activate one requested zone.
+
+        If another zone is already active,
+        it will be turned OFF first.
         """
-        # القدرة الحالية = عدد المناطق المفعّلة فعلاً (كل منطقة نشطة ≈ وحدة تدفق واحدة)
-        current_capacity = sum(1 for z in self.zones if z.is_active)
 
-        if current_capacity >= required_flow_units:
-            self._ticks_since_last_escalation = 0
-            return  # القدرة الحالية كافية، لا حاجة لتفعيل مناطق جديدة
+        if zone_number < 1 or zone_number > 9:
+            raise ValueError("Zone must be between 1 and 9.")
 
-        # القدرة غير كافية -> فعّل Zone 1 أولاً إذا لم تكن مفعّلة
-        first_inactive = next((z for z in self.zones if not z.is_active), None)
-        if first_inactive is None:
-            return  # كل المناطق مفعّلة أصلاً (أقصى حالة)
+        print(f"\nHeating request received for Zone {zone_number}")
 
-        self._ticks_since_last_escalation += 1
+        # Turn off current active zone
+        if self.active_zone is not None:
 
-        # فعّل Zone 1 فوراً عند أول طلب
-        if not self.zones[0].is_active:
-            self.zones[0].is_active = True
-            self.log.append(f"[تفعيل فوري] Zone 1 فُعّلت لتلبية الطلب الأولي "
-                             f"(توفيراً للطاقة بدل تشغيل كل المناطق).")
-            self._ticks_since_last_escalation = 0
-            return
+            if self.active_zone != zone_number:
 
-        # إن مضت فترة الانتظار المحددة ولم تكف القدرة الحالية -> صعّد لمنطقة تالية
-        if self._ticks_since_last_escalation >= self.demand_wait_ticks:
-            first_inactive.is_active = True
-            self.log.append(f"[تصعيد الإشارة] الطلب مستمر ولم تكفِ المناطق الحالية -> "
-                             f"تفعيل {first_inactive.id if False else f'Zone {first_inactive.id}'}.")
-            self._ticks_since_last_escalation = 0
+                print(
+                    f"Zone {self.active_zone} -> HEATING OFF"
+                )
 
-    def release_demand(self):
-        """عند انتهاء الطلب: أطفئ المناطق تدريجياً من الأبعد للأقرب لتوفير الطاقة."""
-        for z in reversed(self.zones):
-            if z.is_active:
-                z.is_active = False
-                self.log.append(f"[إطفاء] Zone {z.id} أُطفئت بعد انتهاء الطلب.")
-                break
+                self.zones[self.active_zone] = "OFF"
 
-    def tick(self):
-        for z in self.zones:
-            z.step()
+        # Safety: force every other zone OFF
+        for zone in self.zones:
 
-    # ---------- مقاييس الطاقة (للمقارنة والإثبات للجنة) ----------
-    def current_power_watt(self) -> float:
-        return sum(self.power_per_zone_watt for z in self.zones if z.is_active)
+            if zone != zone_number:
+                self.zones[zone] = "OFF"
 
-    def all_on_power_watt(self) -> float:
-        return self.power_per_zone_watt * len(self.zones)
+        # Activate requested zone
+        self.zones[zone_number] = "HEATING"
+
+        self.active_zone = zone_number
+
+        print(
+            f"Zone {zone_number} -> HEATING ON"
+        )
+
+        self.safety_check()
 
 
-def demo():
-    print("=== محاكاة خوارزمية الإدارة الذكية لـ 9 مناطق (Selective Heating) ===\n")
-    controller = NineZoneController(num_zones=9, demand_wait_ticks=3)
+    def safety_check(self):
+        """
+        Ensure that no more than one zone
+        is heating at the same time.
+        """
 
-    scenario = (
-        [1] * 8 +   # طلب بسيط (وحدة تدفق واحدة) لمدة 8 ثوانٍ -> يكفي Zone 1
-        [2] * 10 +  # الطلب يزيد لوحدتين -> يفترض تصعيد إلى Zone 2
-        [0] * 6     # انتهاء الطلب -> إطفاء تدريجي
-    )
+        active_zones = [
+            zone
+            for zone, state in self.zones.items()
+            if state == "HEATING"
+        ]
 
-    for t, demand in enumerate(scenario, start=1):
-        if demand > 0:
-            controller.request_fuel(required_flow_units=demand)
-        else:
-            controller.release_demand()
+        if len(active_zones) > 1:
 
-        controller.tick()
+            raise RuntimeError(
+                "SAFETY ERROR: More than one heating zone is active!"
+            )
 
-        active_ids = [z.id for z in controller.zones if z.is_active]
-        print(f"t={t:>2}s | الطلب={demand} | المناطق النشطة: {active_ids} "
-              f"| الاستهلاك الحالي: {controller.current_power_watt():.0f}W "
-              f"(بدل {controller.all_on_power_watt():.0f}W لو شغّلنا كل المناطق دفعة واحدة)")
+        return True
 
-    print("\n--- سجل القرارات (Decision Log) ---")
-    for entry in controller.log:
-        print(entry)
 
-    saved_pct = (1 - controller.power_per_zone_watt * 2 / controller.all_on_power_watt()) * 100
-    print(f"\n>> أقصى عدد مناطق فُعّلت في هذا السيناريو: 2 من 9 "
-          f"=> توفير طاقة يقارب {saved_pct:.0f}% مقارنة بتشغيل كل المناطق دفعة واحدة.")
+    def active_zone_count(self):
+
+        return sum(
+            1
+            for state in self.zones.values()
+            if state == "HEATING"
+        )
+
+
+    def current_power(self):
+        """
+        Current instantaneous heater power.
+        """
+
+        return (
+            self.active_zone_count()
+            * self.heater_power_per_zone_kw
+        )
+
+
+    def full_system_power(self):
+        """
+        Power required if all 9 zones were heated simultaneously.
+        """
+
+        return (
+            self.total_zones
+            * self.heater_power_per_zone_kw
+        )
+
+
+    def energy_saving_percentage(self):
+        """
+        Relative instantaneous power reduction
+        compared with heating all 9 zones.
+        """
+
+        full_power = self.full_system_power()
+
+        current_power = self.current_power()
+
+        saving = (
+            1 - (current_power / full_power)
+        ) * 100
+
+        return round(saving, 1)
+
+
+    def display_status(self):
+
+        print("\n9-ZONE STATUS")
+        print("--------------------")
+
+        for zone, state in self.zones.items():
+
+            print(
+                f"Zone {zone}: {state}"
+            )
+
+        print("--------------------")
+
+        print(
+            "Active zones:",
+            self.active_zone_count(),
+            "/ 9"
+        )
+
+        print(
+            "Current heater power:",
+            self.current_power(),
+            "kW"
+        )
+
+        print(
+            "Relative power reduction:",
+            self.energy_saving_percentage(),
+            "%"
+        )
 
 
 if __name__ == "__main__":
-    demo()
+
+    controller = NineZoneController()
+
+    # First demand
+    controller.request_zone(1)
+
+    controller.display_status()
+
+    # Demand moves to second zone
+    controller.request_zone(2)
+
+    controller.display_status()
